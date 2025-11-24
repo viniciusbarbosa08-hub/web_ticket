@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Controle de Atendimento</title>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; background-color: #f4f4f9; }
+    </style>
+</head>
+<body>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Estilos (Objeto JS)
+        const styles = {
+            container: { fontFamily: 'Arial, sans-serif', padding: '20px', maxWidth: '1200px', margin: '0 auto' },
+            header: { textAlign: 'center', marginBottom: '30px', color: '#333' },
+            grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' },
+            card: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' },
+            cardTitle: { borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', color: '#555', marginTop: 0 },
+            buttonGroup: { display: 'flex', flexDirection: 'column', gap: '10px' },
+            btn: { padding: '15px', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold', color: 'white', transition: '0.3s' },
+            btnSP: { backgroundColor: '#d9534f' }, // Vermelho
+            btnSG: { backgroundColor: '#0275d8' }, // Azul
+            btnSE: { backgroundColor: '#5bc0de' }, // Ciano
+            btnAction: { backgroundColor: '#5cb85c', width: '100%', marginTop: '10px' }, // Verde
+            panelBig: { fontSize: '4rem', textAlign: 'center', color: '#333', fontWeight: 'bold', padding: '20px', border: '2px solid #333', borderRadius: '10px', margin: '10px 0' },
+            panelInfo: { textAlign: 'center', fontSize: '1.5rem', color: '#666' },
+            historyList: { listStyle: 'none', padding: 0 },
+            historyItem: { padding: '10px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', color: '#888' },
+            queueList: { maxHeight: '200px', overflowY: 'auto', border: '1px solid #eee', padding: '10px' },
+            tag: { padding: '2px 6px', borderRadius: '4px', fontSize: '0.8rem', color: 'white', marginRight: '5px' }
+        };
+
+        const App = () => {
+            // --- ESTADOS ---
+            const [queue, setQueue] = useState([]); 
+            const [history, setHistory] = useState([]); 
+            const [currentTicket, setCurrentTicket] = useState(null); 
+            const [lastCalledType, setLastCalledType] = useState(null); 
+            const [sequences, setSequences] = useState({ SP: 0, SG: 0, SE: 0 }); 
+            const [statusMessage, setStatusMessage] = useState("Sistema pronto. Aguardando chamadas.");
+
+            // --- LÓGICA DE DATA E HORA ---
+            const getFormattedDate = () => {
+                const date = new Date();
+                const yy = date.getFullYear().toString().slice(-2);
+                const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+                const dd = date.getDate().toString().padStart(2, '0');
+                return { yy, mm, dd };
+            };
+
+            // --- 1. TOTEM ---
+            const generateTicket = (type) => {
+                const { yy, mm, dd } = getFormattedDate();
+                const newSeq = sequences[type] + 1;
+                setSequences(prev => ({ ...prev, [type]: newSeq }));
+                const id = `${yy}${mm}${dd}-${type}${newSeq.toString().padStart(2, '0')}`;
+                
+                const newTicket = {
+                    id,
+                    type,
+                    arrival: new Date(),
+                    status: 'waiting'
+                };
+
+                setQueue([...queue, newTicket]);
+                setStatusMessage(`Senha ${id} emitida com sucesso!`);
+            };
+
+            // --- 2. ATENDENTE ---
+            const callNextTicket = () => {
+                if (queue.length === 0) {
+                    setStatusMessage("Não há senhas na fila.");
+                    return;
+                }
+
+                let ticketToCall = null;
+                let nextTypeIsPriority = false;
+
+                // Lógica de Alternância: [SP] -> [SE|SG] -> [SP]
+                if (lastCalledType === 'SP') {
+                    nextTypeIsPriority = false; 
+                } else {
+                    nextTypeIsPriority = true;
+                }
+
+                if (nextTypeIsPriority) {
+                    ticketToCall = queue.find(t => t.type === 'SP');
+                    if (!ticketToCall) ticketToCall = queue.find(t => t.type === 'SE');
+                    if (!ticketToCall) ticketToCall = queue.find(t => t.type === 'SG');
+                } else {
+                    ticketToCall = queue.find(t => t.type === 'SE');
+                    if (!ticketToCall) ticketToCall = queue.find(t => t.type === 'SG');
+                    if (!ticketToCall) ticketToCall = queue.find(t => t.type === 'SP');
+                }
+
+                if (!ticketToCall) {
+                    // Caso raro onde a lógica falha ou fila limpa no meio do processo
+                    ticketToCall = queue[0];
+                }
+
+                // Regra de Negócio: 5% de chance de abandono
+                const randomChance = Math.random();
+                if (randomChance < 0.05) {
+                    const newQueue = queue.filter(t => t.id !== ticketToCall.id);
+                    setQueue(newQueue);
+                    setStatusMessage(`Senha ${ticketToCall.id} chamada, mas cliente não compareceu (Descarte automático).`);
+                    return; 
+                }
+
+                const newQueue = queue.filter(t => t.id !== ticketToCall.id);
+                setQueue(newQueue);
+                setCurrentTicket(ticketToCall);
+                setLastCalledType(ticketToCall.type);
+                
+                setHistory(prev => {
+                    const newHistory = [ticketToCall, ...prev];
+                    return newHistory.slice(0, 5);
+                });
+                
+                setStatusMessage(`Chamando senha: ${ticketToCall.id}`);
+            };
+
+            const finishService = () => {
+                if (!currentTicket) return;
+                setStatusMessage(`Atendimento ${currentTicket.id} finalizado.`);
+                setCurrentTicket(null);
+            };
+
+            const getTypeColor = (type) => {
+                if (type === 'SP') return '#d9534f';
+                if (type === 'SG') return '#0275d8';
+                if (type === 'SE') return '#5bc0de';
+                return '#999';
+            };
+
+            return (
+                <div style={styles.container}>
+                    <h1 style={styles.header}>Sistema de Controle de Atendimento</h1>
+                    
+                    <div style={{textAlign: 'center', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '5px', marginBottom: '20px'}}>
+                        <strong>Status:</strong> {statusMessage}
+                    </div>
+
+                    <div style={styles.grid}>
+                        
+                        {/* COLUNA 1: TOTEM + FILA */}
+                        <div>
+                            <div style={styles.card}>
+                                <h2 style={styles.cardTitle}>Totem de Autoatendimento</h2>
+                                <p>Selecione seu tipo de atendimento:</p>
+                                <div style={styles.buttonGroup}>
+                                    <button style={{...styles.btn, ...styles.btnSP}} onClick={() => generateTicket('SP')}>
+                                        Senha Prioritária (SP)
+                                    </button>
+                                    <button style={{...styles.btn, ...styles.btnSE}} onClick={() => generateTicket('SE')}>
+                                        Retirada de Exames (SE)
+                                    </button>
+                                    <button style={{...styles.btn, ...styles.btnSG}} onClick={() => generateTicket('SG')}>
+                                        Senha Geral (SG)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div style={{...styles.card, marginTop: '20px'}}>
+                                <h3 style={styles.cardTitle}>Fila de Espera ({queue.length})</h3>
+                                <div style={styles.queueList}>
+                                    {queue.length === 0 ? <p style={{color: '#999'}}>Fila vazia</p> : (
+                                        queue.map((t) => (
+                                            <div key={t.id} style={{marginBottom: '5px', borderBottom: '1px solid #eee'}}>
+                                                <span style={{...styles.tag, backgroundColor: getTypeColor(t.type)}}>{t.type}</span>
+                                                {t.id}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* COLUNA 2: PAINEL + ATENDENTE */}
+                        <div>
+                            <div style={{...styles.card, backgroundColor: '#333', color: 'white'}}>
+                                <h2 style={{...styles.cardTitle, color: 'white', borderBottomColor: '#555'}}>Painel de Chamadas</h2>
+                                
+                                <div style={{backgroundColor: 'white', borderRadius: '5px', padding: '10px'}}>
+                                    <div style={styles.panelInfo}>SENHA ATUAL</div>
+                                    <div style={styles.panelBig}>
+                                    {currentTicket ? (
+                                        <span style={{color: getTypeColor(currentTicket.type)}}>{currentTicket.id}</span>
+                                    ) : (
+                                        <span style={{color: '#ccc'}}>--</span>
+                                    )}
+                                    </div>
+                                    <div style={styles.panelInfo}>GUICHÊ 01</div>
+                                </div>
+
+                                <div style={{marginTop: '20px'}}>
+                                    <h4>Últimas Chamadas:</h4>
+                                    <ul style={styles.historyList}>
+                                        {history.filter(h => h !== currentTicket).slice(0,4).map((h, index) => (
+                                            <li key={index} style={{...styles.historyItem, borderColor: '#555', color: '#ccc'}}>
+                                                <span>{h.id}</span>
+                                                <span style={{color: getTypeColor(h.type), fontWeight: 'bold'}}>{h.type}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div style={{...styles.card, marginTop: '20px', border: '2px solid #0275d8'}}>
+                                <h3 style={styles.cardTitle}>Mesa do Atendente</h3>
+                                
+                                {currentTicket ? (
+                                    <div>
+                                        <p>Em atendimento: <strong>{currentTicket.id}</strong> ({currentTicket.type})</p>
+                                        <button style={{...styles.btn, backgroundColor: '#d9534f', width: '100%'}} onClick={finishService}>
+                                            Finalizar Atendimento
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <p>Guichê Livre</p>
+                                        <button style={{...styles.btn, ...styles.btnAction}} onClick={callNextTicket}>
+                                            Chamar Próximo (Painel)
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        // Renderização React 18
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
